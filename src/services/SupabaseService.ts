@@ -116,5 +116,41 @@ export const SupabaseService = {
             console.error('Upload Error:', error);
             throw error;
         }
+    },
+    // --- SECURITY & ACCOUNT ---
+    async updatePassword(newPassword: string) {
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) throw error;
+    },
+
+    async deleteUserAccount(userId: string) {
+        // Delete all data. Due to cascade on profile, deleting profile should be enough.
+        const { error } = await supabase
+            .from('profiles')
+            .delete()
+            .eq('id', userId);
+        if (error) throw error;
+
+        // Note: We cannot delete the Auth User from client side without Edge Function.
+        // We will just sign out after data wipe.
+        await supabase.auth.signOut();
+    },
+
+    async getFullUserData(userId: string) {
+        // Parallel fetching for export
+        const [profile, settings, scans, tickets] = await Promise.all([
+            supabase.from('profiles').select('*').eq('id', userId).single(),
+            supabase.from('user_settings').select('*').eq('user_id', userId).single(),
+            supabase.from('scans').select('*, scan_results(*), price_results(*)').eq('user_id', userId),
+            supabase.from('support_tickets').select('*').eq('user_id', userId)
+        ]);
+
+        return {
+            profile: profile.data,
+            settings: settings.data,
+            scans: scans.data,
+            support_tickets: tickets.data,
+            exported_at: new Date().toISOString()
+        };
     }
 };
