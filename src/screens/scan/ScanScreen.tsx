@@ -11,9 +11,13 @@ import { FontAwesome5 } from '@expo/vector-icons';
 // Components
 import { MethodSelector, ScanMethod } from '../../components/scan/MethodSelector';
 import { IntentSelector, ScanIntent } from '../../components/scan/IntentSelector';
+import { useAuth } from '../../helpers/AuthContext';
+import { SupabaseService } from '../../services/SupabaseService';
 
 export const ScanScreen = ({ navigation, route }: any) => {
     const { colors, isDark } = useTheme();
+    const { user } = useAuth();
+    const [isProcessing, setIsProcessing] = useState(false);
 
     // Params from Dashboard (e.g. mode='upload')
     const initialMode = route.params?.mode || 'camera';
@@ -76,7 +80,7 @@ export const ScanScreen = ({ navigation, route }: any) => {
         setUrl('');
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (method === 'camera' || method === 'upload') {
             if (!imageUri) {
                 Alert.alert('Input Required', 'Please provide an image.');
@@ -89,9 +93,71 @@ export const ScanScreen = ({ navigation, route }: any) => {
             }
         }
 
-        // Navigate to results
-        Alert.alert('Success', `Processing ${intent} for ${method}... (Mock Navigation)`);
-        // navigation.navigate('ScanResult', { method, intent, data: imageUri || url });
+        if (!user) {
+            Alert.alert('Auth Error', 'You must be logged in to scan.');
+            return;
+        }
+
+        setIsProcessing(true);
+        try {
+            // 1. Upload Image (if applicable)
+            let finalImageUrl = imageUri;
+            if (method !== 'url' && imageUri) {
+                // In a real app with 'fs', we would read the file. 
+                // For this demo, we assume SupabaseService handles the URI upload or we skip actual upload if file system access is tricky in Expo Go without config.
+                // We'll attempt the upload.
+                try {
+                    finalImageUrl = await SupabaseService.uploadImage(imageUri, 'scans');
+                } catch (err) {
+                    console.warn("Image upload failed, falling back to local URI for demo persistence", err);
+                }
+            }
+
+            // 2. Save Scan Record
+            const scanData = await SupabaseService.saveScan({
+                user_id: user.id,
+                input_type: method,
+                intent: intent,
+                image_url: finalImageUrl || undefined,
+                website_url: method === 'url' ? url : undefined
+            });
+
+            // 3. Generate & Save Results (Mock Logic for "AI")
+            // In a real backend, this would happen via Edge Function. We simulate it here.
+            const mockResult = {
+                scan_id: scanData.id,
+                authenticity_status: Math.random() > 0.1 ? 'Genuine' : 'Fake',
+                confidence_score: 0.95,
+                product_name: 'Simulated Product Detection',
+                brand: 'Detected Brand',
+                metadata: { demo: true }
+            };
+            await SupabaseService.saveScanResults(mockResult);
+
+            if (intent === 'price') {
+                await SupabaseService.savePriceResults({
+                    scan_id: scanData.id,
+                    seller: 'BestBuy',
+                    price: 199.99,
+                    currency: 'USD',
+                    availability: 'In Stock'
+                });
+            }
+
+            // 4. Navigate
+            navigation.navigate('ScanResult', {
+                method,
+                intent,
+                data: finalImageUrl || url,
+                scanId: scanData.id, // Pass ID for tracking
+                mockResult // Pass directly for instant render
+            });
+
+        } catch (error: any) {
+            Alert.alert('Scan Failed', error.message || 'Could not save scan.');
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     // Render Camera Input
@@ -203,10 +269,11 @@ export const ScanScreen = ({ navigation, route }: any) => {
 
                 {/* Submit */}
                 <Button
-                    title={getButtonTitle()}
+                    title={isProcessing ? "Processing..." : getButtonTitle()}
                     onPress={handleSubmit}
                     style={{ marginTop: spacing.m }}
-                    disabled={(!imageUri && method !== 'url') || (method === 'url' && !url)}
+                    disabled={isProcessing || (!imageUri && method !== 'url') || (method === 'url' && !url)}
+                    loading={isProcessing}
                 />
             </ScrollView>
         </Container>

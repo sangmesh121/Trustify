@@ -74,8 +74,11 @@ function ProfileNavigator() {
     );
 }
 
+import { useSettingsSync } from '../hooks/useSettingsSync';
+
 function MainNavigator() {
     const { colors, isDark } = useTheme();
+    useSettingsSync(); // Sync settings on load
 
     return (
         <Tab.Navigator

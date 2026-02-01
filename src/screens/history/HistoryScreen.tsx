@@ -1,92 +1,94 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, Image } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TextInput, ActivityIndicator } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Container } from '../../components/Container';
 import { Button } from '../../components/common/Button';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../helpers/AuthContext';
+import { SupabaseService } from '../../services/SupabaseService';
 import { spacing } from '../../theme/colors';
 import { FontAwesome5 } from '@expo/vector-icons';
 
 import { HistoryItem } from '../../components/history/HistoryItem';
 import { HistoryFilters } from '../../components/history/HistoryFilters';
 
-const MOCK_HISTORY = [
-    {
-        id: '1',
-        name: 'Nike Air Jordan 1',
-        brand: 'Nike',
-        image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff',
-        date: 'Today, 10:23 AM',
-        intent: 'verify' as const,
-        status: 'Genuine',
-        statusColor: '#4CAF50'
-    },
-    {
-        id: '2',
-        name: 'Rolex Submariner',
-        brand: 'Rolex',
-        image: 'https://images.unsplash.com/photo-1524592094714-0f0654e20314',
-        date: 'Yesterday, 4:15 PM',
-        intent: 'verify' as const,
-        status: 'Cannot Verify',
-        statusColor: '#FFC107'
-    },
-    {
-        id: '3',
-        name: 'Sony WH-1000XM4',
-        brand: 'Sony',
-        image: 'https://images.unsplash.com/photo-1618366712010-f4ae9c647dcb',
-        date: 'Jan 28, 2025',
-        intent: 'price' as const,
-        status: 'Best: $248',
-        statusColor: '#4CAF50'
-    },
-    {
-        id: '4',
-        name: 'Gucci Marmont Bag',
-        brand: 'Gucci',
-        image: 'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a',
-        date: 'Jan 25, 2025',
-        intent: 'verify' as const,
-        status: 'Fake',
-        statusColor: '#F44336'
-    },
-    {
-        id: '5',
-        name: 'iPhone 15 Pro',
-        brand: 'Apple',
-        image: 'https://images.unsplash.com/photo-1695048133142-1a20484d2569',
-        date: 'Jan 20, 2025',
-        intent: 'details' as const,
-        status: 'Viewed',
-        statusColor: '#666'
-    },
-];
-
 export const HistoryScreen = ({ navigation }: any) => {
     const { colors, isDark } = useTheme();
+    const { user } = useAuth();
+    const [scans, setScans] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [activeFilter, setActiveFilter] = useState('all');
 
+    const fetchHistory = useCallback(async () => {
+        if (!user) return;
+        setLoading(true);
+        try {
+            const data = await SupabaseService.getUserHistory(user.id);
+            // Transform data for UI
+            const formatted = data.map((item: any) => {
+                const result = item.scan_results?.[0] || {};
+                const price = item.price_results?.[0] || {};
+
+                let statusText = 'Pending';
+                let statusColor = '#666';
+
+                if (item.intent === 'verify') {
+                    statusText = result.authenticity_status || 'Unknown';
+                    statusColor = statusText === 'Genuine' ? '#4CAF50' :
+                        statusText === 'Fake' ? '#F44336' : '#FFC107';
+                } else if (item.intent === 'price') {
+                    statusText = price.price ? `$${price.price}` : 'No Price';
+                    statusColor = '#4CAF50';
+                } else {
+                    statusText = 'Viewed';
+                }
+
+                return {
+                    id: item.id,
+                    name: result.product_name || 'Unknown Product',
+                    brand: result.brand || 'Unknown Brand',
+                    image: item.image_url || 'https://via.placeholder.com/150',
+                    date: new Date(item.created_at).toLocaleDateString(),
+                    intent: item.intent,
+                    status: statusText,
+                    statusColor: statusColor,
+                    fullData: item
+                };
+            });
+            setScans(formatted);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
+    }, [user?.id]);
+
+    useFocusEffect(
+        useCallback(() => {
+            fetchHistory();
+        }, [fetchHistory])
+    );
+
     // Filter Logic
-    const filteredData = MOCK_HISTORY.filter(item => {
+    const filteredData = scans.filter(item => {
         const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             item.brand.toLowerCase().includes(searchQuery.toLowerCase());
 
         const matchesFilter = activeFilter === 'all' || item.intent === activeFilter;
-        // Note: For 'camera'/'upload' filters we'd check item.sourceType if available.
-        // For now we just map intents. 
-        // If filter is 'camera' we show all for mock simplicity or add mock property.
-
         return matchesSearch && matchesFilter;
     });
 
     const handlePress = (item: any) => {
+        // We pass the full scan result data to the result screen
+        // In a real app, we might just pass ID and let Result fetch, but we have data already.
         navigation.navigate('ScanTab', {
             screen: 'ScanResult',
             params: {
                 method: 'history',
                 intent: item.intent,
-                data: item.image
+                data: item.image,
+                mockResult: item.fullData?.scan_results?.[0]
             }
         });
     };
@@ -102,7 +104,7 @@ export const HistoryScreen = ({ navigation }: any) => {
             </Text>
             <Button
                 title="Scan Product"
-                onPress={() => navigation.navigate('ScanTab')}
+                onPress={() => navigation.navigate('ScanTab', { screen: 'ScanScreen' })}
                 style={{ marginTop: spacing.l, width: 200 }}
             />
         </View>
@@ -131,14 +133,20 @@ export const HistoryScreen = ({ navigation }: any) => {
 
             <HistoryFilters activeFilter={activeFilter} onSelect={setActiveFilter} />
 
-            <FlatList
-                data={filteredData}
-                keyExtractor={item => item.id}
-                renderItem={({ item }) => <HistoryItem item={item} onPress={() => handlePress(item)} />}
-                contentContainerStyle={styles.list}
-                ListEmptyComponent={renderEmptyState}
-                showsVerticalScrollIndicator={false}
-            />
+            {loading ? (
+                <View style={{ flex: 1, justifyContent: 'center' }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+            ) : (
+                <FlatList
+                    data={filteredData}
+                    keyExtractor={item => item.id}
+                    renderItem={({ item }) => <HistoryItem item={item} onPress={() => handlePress(item)} />}
+                    contentContainerStyle={styles.list}
+                    ListEmptyComponent={renderEmptyState}
+                    showsVerticalScrollIndicator={false}
+                />
+            )}
         </Container>
     );
 };

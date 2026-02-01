@@ -1,32 +1,52 @@
-# Help & Security Implementation
+# Supabase Full Integration Plan
 
 ## Goal
-Make Help, Support, Security, and Privacy settings fully functional using mocked backend calls and local persistence.
+Migrate the mock-driven app to a fully data-persisted application using Supabase.
 
-## Proposed Changes
+## Architecture
+- **Auth**: replace mock `AuthContext` with Supabase Auth (Session management, Login, Register).
+- **Database**: `SupabaseService` class to handle all data operations.
+- **Storage**: Upload images to Supabase Storage buckets.
+- **RLS**: Validation that users only access their own data.
 
-### Screens
-- **`src/screens/settings/support/HelpCenterScreen.tsx`**:
-    - **Features**: Search bar, Category list, Article detail modal/view.
-    - **Logic**: Fetch items -> Filter by search -> Show details.
-- **`src/screens/settings/support/ContactSupportScreen.tsx`**:
-    - **Features**: Subject, Message, System Info (auto-filled).
-    - **Logic**: Validate -> "Post" to backend -> Show Success/Failure.
-- **`src/screens/settings/privacy/SecuritySettingsScreen.tsx` (Update)**:
-    - **Biometrics**: Use `AsyncStorage` to persist "biometric_enabled" state. Simulate auth challenge.
-    - **Clear History**: Clear global history state (Context or Storage).
-    - **Delete Account**: Two-step confirmation -> Reset Auth State.
+## Step-by-Step Implementation
 
-### Navigation
-- Add `HelpCenter` and `ContactSupport` to `ProfileNavigator`.
+### 1. Core Setup
+- [ ] Verify `src/lib/supabase.ts` configuration.
+- [ ] Create `src/services/SupabaseService.ts` to centralize all DB interaction.
+- [ ] Update `src/helpers/AuthContext.tsx` to use `supabase.auth`.
 
-## Logic / Mock Data
-- **Help Data**: JSON array of articles (FAQ).
-- **Support API**: Mock `Promise` with random success/failure.
-- **Security**: Mock `LocalAuthentication` behavior for web compatibility.
+### 2. Feature Migration (Screens)
+
+#### A. Auth Flow
+- **LoginScreen**: `supabase.auth.signInWithPassword`.
+- **RegisterScreen**: `supabase.auth.signUp` (Check profile creation trigger).
+
+#### B. Dashboard & Profile
+- **Home/Dashboard**: Fetch `profiles` payload for greetings.
+- **ProfileScreen**: Read/Update `profiles` table.
+- **EditProfileScreen**: Update `full_name`, `phone` in `profiles` / `auth.users`.
+
+#### C. Settings Sync
+- **SettingsScreen**: Load/Save `theme`, `notifications_enabled` to `user_settings`.
+- **Strategy**: On app launch, fetch settings and apply to `ThemeContext`.
+
+#### D. Scanning & History
+- **ScanScreen**:
+    1. Upload image to `scans` bucket.
+    2. Insert row to `scans` table.
+    3. Generate/Insert `scan_results`.
+- **HistoryScreen**: `select * from scans` (paginated).
+
+#### E. Support & Feedback
+- **ContactSupport**: Insert into `support_tickets`.
+- **HelpCenter**: (Optional) Fetch articles if we move them to DB, else keep local for now as per user prompt "decide where data stored" -> Help Cache is Local.
+
+### 3. Storage Integration
+- Create helper `uploadImage(uri, bucket)` in `SupabaseService`.
 
 ## Verification
-- **Help**: Search for "scan" -> See results.
-- **Support**: Submit ticket -> See success toast/alert.
-- **Security**: Toggle Biometrics -> See state persist.
-- **Privacy**: Clear History -> Check if history is empty (Visual verification).
+- Login with real email.
+- Check Supabase Dashboard for new user rows.
+- Scan item -> Check `scans` table.
+- Update Settings -> Reload app -> Check persistence.

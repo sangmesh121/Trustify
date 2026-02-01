@@ -3,30 +3,47 @@ import { View, Text, StyleSheet, TextInput, Alert, ScrollView } from 'react-nati
 import { Container } from '../../../components/Container';
 import { Button } from '../../../components/common/Button';
 import { useTheme } from '../../../context/ThemeContext';
+import { useAuth } from '../../../helpers/AuthContext';
+import { SupabaseService } from '../../../services/SupabaseService';
 import { spacing } from '../../../theme/colors';
 
 export const ContactSupportScreen = ({ navigation }: any) => {
     const { colors } = useTheme();
+    const { user } = useAuth();
     const [subject, setSubject] = useState('');
     const [message, setMessage] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!subject || !message) {
             Alert.alert("Missing Information", "Please fill in both subject and message.");
             return;
         }
 
+        if (!user) {
+            Alert.alert("Error", "You must be logged in to contact support.");
+            return;
+        }
+
         setIsLoading(true);
-        // Mock API call
-        setTimeout(() => {
-            setIsLoading(false);
+        try {
+            await SupabaseService.createSupportTicket({
+                user_id: user.id,
+                subject,
+                message,
+            });
+
             Alert.alert(
                 "Request Sent",
-                "We have received your message. Ticket ID: #88219. Our team will reply shortly.",
+                "We have received your message. Our team will replay shortly.",
                 [{ text: "OK", onPress: () => navigation.goBack() }]
             );
-        }, 1500);
+        } catch (error: any) {
+            console.error(error);
+            Alert.alert("Error", error.message || "Failed to submit ticket.");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
